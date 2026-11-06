@@ -44,8 +44,8 @@ function update() {
       babies.push(makeCreature(c.x, c.y, c.speed, c.vision));
     }
   }
-
-  creatures = creatures.filter(c => c.energy > 0).concat(babies);  // zero energy = death
+  for (const c of creatures) if (c.energy <= 0) deaths.push({x: c.x, y: c.y, life: 30});
+  creatures = creatures.filter(c => c.energy > 0).concat(babies);
 
   if (Math.random() < 0.3 && plants.length < 150)
     plants.push({x: rand(0, W), y: rand(0, H)});
