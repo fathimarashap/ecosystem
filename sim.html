@@ -12,8 +12,8 @@ function makeCreature(x, y, speed, vision) {
   return {x, y, angle: rand(0, Math.PI * 2), speed, vision, energy: 50};
 }
 let creatures = Array.from({length: 15}, () =>
-  makeCreature(rand(0, W), rand(0, H), 1.5, 80));
-
+  makeCreature(rand(0, W), rand(0, H), rand(0.8, 2.2), rand(40, 120)));
+const mutate = (v, amt, min, max) => Math.max(min, Math.min(max, v + rand(-amt, amt)));
 function update() {
   const babies = [];
 
@@ -41,7 +41,7 @@ function update() {
 
     if (c.energy > 100) {                     // enough energy: reproduce
       c.energy -= 50;
-      babies.push(makeCreature(c.x, c.y, c.speed, c.vision));
+      babies.push(makeCreature(c.x, c.y, mutate(c.speed, 0.2, 0.5, 4), mutate(c.vision, 8, 20, 200)));
     }
   }
   for (const c of creatures) if (c.energy <= 0) deaths.push({x: c.x, y: c.y, life: 30});
@@ -59,7 +59,7 @@ function draw() {
   for (const p of plants) ctx.fillRect(p.x, p.y, 4, 4);
 
   for (const c of creatures) {
-    const e = Math.max(0, Math.min(1, c.energy / 100));
+    const e = Math.max(0, Math.min(1, c.energy / 60));
     ctx.fillStyle = `rgb(255, ${Math.floor(60 + 195 * e)}, ${Math.floor(60 + 195 * e)})`;
     ctx.fillRect(c.x - 3, c.y - 3, 7, 7);
   }
