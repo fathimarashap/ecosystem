@@ -1,21 +1,23 @@
 <canvas id="c" width="800" height="500" style="background:#111"></canvas>
+<div id="info" style="color:white;font-family:sans-serif;margin-top:8px"></div>
 <script>
 const ctx = document.getElementById('c').getContext('2d');
+const info = document.getElementById('info');
 const W = 800, H = 500;
-
 const rand = (a, b) => a + Math.random() * (b - a);
 
-let plants = Array.from({length: 60}, () => ({x: rand(0, W), y: rand(0, H)}));
-let creatures = Array.from({length: 15}, () => ({
-  x: rand(0, W), y: rand(0, H),
-  angle: rand(0, Math.PI * 2),
-  speed: 1.5,
-  vision: 80
-}));
+let plants = Array.from({length: 80}, () => ({x: rand(0, W), y: rand(0, H)}));
+
+function makeCreature(x, y, speed, vision) {
+  return {x, y, angle: rand(0, Math.PI * 2), speed, vision, energy: 50};
+}
+let creatures = Array.from({length: 15}, () =>
+  makeCreature(rand(0, W), rand(0, H), 1.5, 80));
 
 function update() {
+  const babies = [];
+
   for (const c of creatures) {
-    // find the nearest plant inside vision range
     let nearest = null, best = c.vision;
     for (const p of plants) {
       const d = Math.hypot(p.x - c.x, p.y - c.y);
@@ -23,18 +25,30 @@ function update() {
     }
 
     if (nearest) {
-      c.angle = Math.atan2(nearest.y - c.y, nearest.x - c.x);   // head to food
-      if (best < 6) plants.splice(plants.indexOf(nearest), 1);  // eat it
+      c.angle = Math.atan2(nearest.y - c.y, nearest.x - c.x);
+      if (best < 6) {
+        plants.splice(plants.indexOf(nearest), 1);
+        c.energy += 30;                       // eating gives energy
+      }
     } else {
-      c.angle += rand(-0.3, 0.3);                               // wander
+      c.angle += rand(-0.3, 0.3);
     }
 
     c.x = (c.x + Math.cos(c.angle) * c.speed + W) % W;
     c.y = (c.y + Math.sin(c.angle) * c.speed + H) % H;
+
+    c.energy -= 0.1 + c.speed * 0.03;         // living and moving costs energy
+
+    if (c.energy > 100) {                     // enough energy: reproduce
+      c.energy -= 50;
+      babies.push(makeCreature(c.x, c.y, c.speed, c.vision));
+    }
   }
 
-  // new plants keep growing
-  if (Math.random() < 0.3) plants.push({x: rand(0, W), y: rand(0, H)});
+  creatures = creatures.filter(c => c.energy > 0).concat(babies);  // zero energy = death
+
+  if (Math.random() < 0.3 && plants.length < 150)
+    plants.push({x: rand(0, W), y: rand(0, H)});
 }
 
 function draw() {
@@ -43,6 +57,7 @@ function draw() {
   for (const p of plants) ctx.fillRect(p.x, p.y, 4, 4);
   ctx.fillStyle = 'white';
   for (const c of creatures) ctx.fillRect(c.x - 3, c.y - 3, 7, 7);
+  info.textContent = `Creatures: ${creatures.length}   Plants: ${plants.length}`;
 }
 
 function loop() { update(); draw(); requestAnimationFrame(loop); }
