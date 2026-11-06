@@ -33,4 +33,14 @@
 - Average speed and vision looked like they moved together on the graph, but that needs checking against the actual numbers, because the two lines use separate axes.
 
 ## Experiment results
-()
+(Each run: values at the time I read the stats line.
+
+*Run 1:* plant growth 0.3, living cost 0.1 (?), mutation size 1
+- Creatures 44, plants 10, avg speed 2.5, avg vision 84.5
+
+*Run 2:* plant growth lowered to 0.1 (?), other settings unchanged
+- Creatures 6, plants 10, avg speed 2.92, avg vision 98.43
+
+*Run 3:* plant growth 0.31, living cost 0.33, mutation size 1.7
+- Creatures 20, plants 15, avg speed 3.74, avg vision 105.8
+)

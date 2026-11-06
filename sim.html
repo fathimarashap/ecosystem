@@ -1,5 +1,6 @@
 <canvas id="c" width="800" height="500" style="background:#111"></canvas>
 <div id="info" style="color:black;font-family:sans-serif;margin-top:8px"></div>
+<button id="start" style="margin:8px 0">Start</button>
 <div style="font-family:sans-serif;margin:8px 0">
   <label>Plant growth: <span id="gv">0.3</span>
     <input id="growth" type="range" min="0" max="0.6" step="0.01" value="0.3"></label><br>
@@ -30,10 +31,13 @@ const mutate = (v, amt, min, max) => Math.max(min, Math.min(max, v + rand(-amt, 
 
 const params = {growth: 0.3, cost: 0.1, mut: 1};
 for (const [id, key, label] of [['growth','growth','gv'], ['cost','cost','cv'], ['mut','mut','mv']]) {
-  document.getElementById(id).addEventListener('input', e => {
-    params[key] = parseFloat(e.target.value);
-    document.getElementById(label).textContent = e.target.value;
-  });
+  const el = document.getElementById(id);
+  const sync = () => {
+    params[key] = parseFloat(el.value);
+    document.getElementById(label).textContent = el.value;
+  };
+  el.addEventListener('input', sync);
+  sync();
 }
 
 function update() {
@@ -59,8 +63,7 @@ function update() {
     c.x = (c.x + Math.cos(c.angle) * c.speed + W) % W;
     c.y = (c.y + Math.sin(c.angle) * c.speed + H) % H;
 
-    c.energy -= params.cost + c.speed * 0.03 + c.vision * 0.0008;         // living and moving costs energy
-
+    c.energy -= params.cost + c.speed * c.speed * 0.02 + c.vision * 0.0008;
     if (c.energy > 100) {                     // enough energy: reproduce
       c.energy -= 50;
       babies.push(makeCreature(c.x, c.y, mutate(c.speed, 0.2 * params.mut, 0.5, 4), mutate(c.vision, 8 * params.mut, 20, 200)));
@@ -137,6 +140,8 @@ function record() {
   add(popChart, [creatures.length, plants.length]);
   add(traitChart, [mean('speed'), mean('vision')]);
 }
-function loop() { update(); draw(); record(); requestAnimationFrame(loop); }
+let running = false;
+document.getElementById('start').addEventListener('click', () => running = true);
+function loop() { if (running) { update(); record(); } draw(); requestAnimationFrame(loop); }
 loop();
 </script>
