@@ -61,7 +61,8 @@ function draw() {
   for (const c of creatures) {
     const e = Math.max(0, Math.min(1, c.energy / 60));
     ctx.fillStyle = `rgb(255, ${Math.floor(60 + 195 * e)}, ${Math.floor(60 + 195 * e)})`;
-    ctx.fillRect(c.x - 3, c.y - 3, 7, 7);
+    const s = 3 + c.vision / 25;
+    ctx.fillRect(c.x - s / 2, c.y - s / 2, s, s);
   }
 
   for (const d of deaths) {
