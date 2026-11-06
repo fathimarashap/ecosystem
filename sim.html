@@ -1,20 +1,50 @@
-<canvas id="c" width="600" height="400" style="background:#111"></canvas>
+<canvas id="c" width="800" height="500" style="background:#111"></canvas>
 <script>
 const ctx = document.getElementById('c').getContext('2d');
-const rabbits = Array.from({length: 20}, () => ({
-  x: Math.random() * 600,
-  y: Math.random() * 400
+const W = 800, H = 500;
+
+const rand = (a, b) => a + Math.random() * (b - a);
+
+let plants = Array.from({length: 60}, () => ({x: rand(0, W), y: rand(0, H)}));
+let creatures = Array.from({length: 15}, () => ({
+  x: rand(0, W), y: rand(0, H),
+  angle: rand(0, Math.PI * 2),
+  speed: 1.5,
+  vision: 80
 }));
 
-function tick() {
-  ctx.clearRect(0, 0, 600, 400);
-  for (const r of rabbits) {
-    r.x += (Math.random() - 0.5) * 4;
-    r.y += (Math.random() - 0.5) * 4;
-    ctx.fillStyle = 'white';
-    ctx.fillRect(r.x, r.y, 5, 5);
+function update() {
+  for (const c of creatures) {
+    // find the nearest plant inside vision range
+    let nearest = null, best = c.vision;
+    for (const p of plants) {
+      const d = Math.hypot(p.x - c.x, p.y - c.y);
+      if (d < best) { best = d; nearest = p; }
+    }
+
+    if (nearest) {
+      c.angle = Math.atan2(nearest.y - c.y, nearest.x - c.x);   // head to food
+      if (best < 6) plants.splice(plants.indexOf(nearest), 1);  // eat it
+    } else {
+      c.angle += rand(-0.3, 0.3);                               // wander
+    }
+
+    c.x = (c.x + Math.cos(c.angle) * c.speed + W) % W;
+    c.y = (c.y + Math.sin(c.angle) * c.speed + H) % H;
   }
-  requestAnimationFrame(tick);
+
+  // new plants keep growing
+  if (Math.random() < 0.3) plants.push({x: rand(0, W), y: rand(0, H)});
 }
-tick();
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'limegreen';
+  for (const p of plants) ctx.fillRect(p.x, p.y, 4, 4);
+  ctx.fillStyle = 'white';
+  for (const c of creatures) ctx.fillRect(c.x - 3, c.y - 3, 7, 7);
+}
+
+function loop() { update(); draw(); requestAnimationFrame(loop); }
+loop();
 </script>
