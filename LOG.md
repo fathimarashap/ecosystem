@@ -24,23 +24,46 @@
 - Fix: moved the charts outside the info div.
 - Learned: setting `textContent` on an element replaces everything inside it.
 
-## Sliders
+## Sliders and Start button
 - Added sliders for plant growth, living cost and mutation size so the rules can be changed while the simulation runs.
+- Added a Start button so the sliders can be set before the simulation begins (see the problems below for why this was needed).
 
-## First experiment: plant growth
-- High plant growth: creature count rises and average speed rises quickly, while average vision falls.
-- Low plant growth: the opposite pattern.
-- Average speed and vision looked like they moved together on the graph, but that needs checking against the actual numbers, because the two lines use separate axes.
+## Problems found in my own method
+1. The simulation started as soon as the page loaded, so the first generations mutated at the default settings before I could move the sliders. Those traits were then carried through the whole run. Fix: added a Start button, so I set the sliders first and then begin.
+2. Speed was almost free (cost proportional to speed), so it sat at its cap of 4 in every run. Fix: made the speed cost quadratic, and vision now costs a little energy too, so both traits have a trade-off.
+3. Earlier trait numbers came from those flawed runs, so I discarded them and re-ran the experiments with the fixed code.
+- Learned: check that an experiment can actually fail before trusting its results.
 
-## Experiment results
-(Each run: values at the time I read the stats line.
+## Control: mutation 0
+Settings: growth 0.3, cost 0.1, mutation 0.
+- Creatures 30 to 40, plants 10 to 15, avg speed 2.04, avg vision 84 to 85.
+- With no mutation, traits can't evolve. Speed stayed inside the starting range (0.8 to 2.2), which confirms the fixes work and that the changes in the other runs come from evolution.
 
-*Run 1:* plant growth 0.3, living cost 0.1 (?), mutation size 1
-- Creatures 44, plants 10, avg speed 2.5, avg vision 84.5
+## Experiment 1: effect of food (plant growth)
+Method: reload, set sliders, click Start, wait about 4 minutes, read the stats. Cost 0.1 and mutation 1 for all runs. One run per setting.
 
-*Run 2:* plant growth lowered to 0.1 (?), other settings unchanged
-- Creatures 6, plants 10, avg speed 2.92, avg vision 98.43
+| Plant growth | Creatures | Plants   | Avg speed    | Avg vision |
+|--------------|-----------|----------|--------------|------------|
+| 0.1          | 9 to 11   | 10 to 15 | 3.1          | 115 to 119 |
+| 0.3          | 25 to 30  | 10 to 15 | 2.8 to 2.9.  | 83 to 84   |
+| 0.5          | 45 to 55  | 10 to 20 | 2.75 to 2.77 | 68 to 69   |
 
-*Run 3:* plant growth 0.31, living cost 0.33, mutation size 1.7
-- Creatures 20, plants 15, avg speed 3.74, avg vision 105.8
-)
+Findings:
+- More food gave more creatures at every step.
+- Scarce food produced much longer vision (about 117) than abundant food (about 68). Likely explanation: seeing far pays off when plants are rare and isn't worth its energy cost when food is everywhere. This also appeared in an earlier, less clean batch, which makes it more convincing.
+- Speed changed only slightly (3.1 down to 2.75), so this is a weak trend.
+
+## Experiment 2: living cost
+Settings: growth 0.3, mutation 1, cost 0.4. One run.
+- Creatures 10 to 15, plants 15 to 50, avg speed 2.8 to 3.0, avg vision 78 to 81.
+- Higher living cost gave fewer creatures than cost 0.1 (about 27).
+- Vision and speed didn't change clearly, so no claim about cost effects on traits.
+
+## Limitations
+- One run per setting, so these are patterns, not confirmed conclusions.
+- Stats were read by eye from the screen, not exported.
+- Only plant growth was tested across several levels. Mutation size above 1 and cost between 0.1 and 0.4 were not tested.
+
+## Next steps
+- Repeat growth 0.1 and 0.5 to check the vision result.
+- Deploy to GitHub Pages and write the README, demo video and report.
