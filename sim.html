@@ -1,0 +1,20 @@
+<canvas id="c" width="600" height="400" style="background:#111"></canvas>
+<script>
+const ctx = document.getElementById('c').getContext('2d');
+const rabbits = Array.from({length: 20}, () => ({
+  x: Math.random() * 600,
+  y: Math.random() * 400
+}));
+
+function tick() {
+  ctx.clearRect(0, 0, 600, 400);
+  for (const r of rabbits) {
+    r.x += (Math.random() - 0.5) * 4;
+    r.y += (Math.random() - 0.5) * 4;
+    ctx.fillStyle = 'white';
+    ctx.fillRect(r.x, r.y, 5, 5);
+  }
+  requestAnimationFrame(tick);
+}
+tick();
+</script>
