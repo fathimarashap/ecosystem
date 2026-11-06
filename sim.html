@@ -1,5 +1,10 @@
 <canvas id="c" width="800" height="500" style="background:#111"></canvas>
-<div id="info" style="color:white;font-family:sans-serif;margin-top:8px"></div>
+<div id="info" style="color:black;font-family:sans-serif;margin-top:8px"></div>
+<div style="display:flex;gap:10px;max-width:820px">
+  <div style="flex:1"><canvas id="popChart"></canvas></div>
+  <div style="flex:1"><canvas id="traitChart"></canvas></div>
+</div>
+<script src="chart.umd.js"></script>
 <script>
 const ctx = document.getElementById('c').getContext('2d');
 const info = document.getElementById('info');
@@ -73,10 +78,48 @@ function draw() {
     d.life--;
   }
   deaths = deaths.filter(d => d.life > 0);
-
-  info.textContent = `Creatures: ${creatures.length}   Plants: ${plants.length}`;
+  const avg = k => creatures.length ? (creatures.reduce((s, c) => s + c[k], 0) / creatures.length).toFixed(2) : 0;
+  info.textContent = `Creatures: ${creatures.length}   Plants: ${plants.length}   Avg Speed: ${avg('speed')}   Avg Vision: ${avg('vision')}`;
 }
+const popChart = new Chart(document.getElementById('popChart'), {
+  type: 'line',
+  data: {labels: [], datasets: [
+    {label: 'Creatures', data: [], borderColor: 'crimson', pointRadius: 0},
+    {label: 'Plants', data: [], borderColor: 'green', pointRadius: 0}
+  ]},
+  options: {animation: false}
+});
 
-function loop() { update(); draw(); requestAnimationFrame(loop); }
+const traitChart = new Chart(document.getElementById('traitChart'), {
+  type: 'line',
+  data: {labels: [], datasets: [
+    {label: 'Avg speed', data: [], borderColor: 'blue', pointRadius: 0, yAxisID: 'y'},
+    {label: 'Avg vision', data: [], borderColor: 'orange', pointRadius: 0, yAxisID: 'y1'}
+  ]},
+  options: {animation: false, scales: {
+    y: {position: 'left'},
+    y1: {position: 'right', grid: {drawOnChartArea: false}}
+  }}
+});
+
+let frame = 0;
+function record() {
+  frame++;
+  if (frame % 30 !== 0) return;
+  const mean = k => creatures.length
+    ? creatures.reduce((s, c) => s + c[k], 0) / creatures.length : 0;
+  const add = (chart, vals) => {
+    chart.data.labels.push(frame);
+    chart.data.datasets.forEach((d, i) => d.data.push(vals[i]));
+    if (chart.data.labels.length > 300) {
+      chart.data.labels.shift();
+      chart.data.datasets.forEach(d => d.data.shift());
+    }
+    chart.update();
+  };
+  add(popChart, [creatures.length, plants.length]);
+  add(traitChart, [mean('speed'), mean('vision')]);
+}
+function loop() { update(); draw(); record(); requestAnimationFrame(loop); }
 loop();
 </script>
