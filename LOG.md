@@ -64,6 +64,3 @@ Settings: growth 0.3, mutation 1, cost 0.4. One run.
 - Stats were read by eye from the screen, not exported.
 - Only plant growth was tested across several levels. Mutation size above 1 and cost between 0.1 and 0.4 were not tested.
 
-## Next steps
-- Repeat growth 0.1 and 0.5 to check the vision result.
-- Deploy to GitHub Pages and write the README, demo video and report.
