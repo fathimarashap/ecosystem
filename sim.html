@@ -164,12 +164,18 @@ document.getElementById('csv').addEventListener('click', () => {
   a.download = 'ecosystem-run.csv';
   a.click();
 });
+const targetSteps = 30000;
 
 function loop() {
   if (running) {
     for (let i = 0; i < simSpeed; i++) {
       update(); record(); steps++;
       if (steps % 30 === 0) logRow();
+      if (steps >= targetSteps) {
+        running = false;
+        document.getElementById('csv').click();
+        break;
+      }
     }
   }
   draw();
