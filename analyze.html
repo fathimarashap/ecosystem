@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html><body style="font-family:sans-serif;max-width:900px;margin:20px auto">
+<h2>Experiment analysis</h2>
+<input type="file" id="files" multiple accept=".csv">
+<p>Average the last <input id="tail" type="number" value="3000" style="width:70px"> steps of each run.</p>
+<p id="note"></p>
+<table id="tbl" border="1" cellpadding="4" style="border-collapse:collapse"></table>
+<br><button id="dl">Download summary CSV</button>
+<canvas id="vis"></canvas>
+<canvas id="spd"></canvas>
+<canvas id="pop"></canvas>
+<script src="chart.umd.js"></script>
+<script>
+const rows = [], charts = [];
+const keys = ['growth', 'cost', 'mut'];
+
+document.getElementById('files').addEventListener('change', async e => {
+  rows.length = 0;
+  const tail = +document.getElementById('tail').value;
+  for (const f of e.target.files) {
+    const lines = (await f.text()).trim().split('\n').slice(1).map(l => l.split(',').map(Number));
+    const maxStep = lines[lines.length - 1][0];
+    const last = lines.filter(r => r[0] > maxStep - tail);
+    const m = i => last.reduce((s, r) => s + r[i], 0) / last.length;
+    const mixed = lines.some(r => r[5] !== lines[0][5] || r[6] !== lines[0][6] || r[7] !== lines[0][7]);
+    rows.push({file: f.name, growth: lines[0][5], cost: lines[0][6], mut: lines[0][7],
+               creatures: m(1), speed: m(3), vision: m(4), mixed});
+  }
+  show();
+});
+
+function show() {
+  const count = k => new Set(rows.map(r => r[k])).size;
+  const vary = keys.reduce((a, k) => count(k) > count(a) ? k : a, 'growth');
+  rows.sort((a, b) => a[vary] - b[vary]);
+
+  document.getElementById('note').textContent =
+    `Varying setting: ${vary}. ` + (rows.some(r => r.mixed)
+      ? 'WARNING: a slider changed during at least one run (marked with !). Redo that run.' : 'All runs had constant settings.');
+
+  document.getElementById('tbl').innerHTML =
+    '<tr><th>File</th><th>growth</th><th>cost</th><th>mutation</th><th>creatures</th><th>avg speed</th><th>avg vision</th></tr>' +
+    rows.map(r => `<tr><td>${r.mixed ? '! ' : ''}${r.file}</td><td>${r.growth}</td><td>${r.cost}</td><td>${r.mut}</td>` +
+      `<td>${r.creatures.toFixed(1)}</td><td>${r.speed.toFixed(3)}</td><td>${r.vision.toFixed(1)}</td></tr>`).join('');
+
+  charts.forEach(c => c.destroy());
+  charts.length = 0;
+  const plot = (id, yKey, label, color) => charts.push(new Chart(document.getElementById(id), {
+    type: 'scatter',
+    data: {datasets: [{label, data: rows.map(r => ({x: r[vary], y: r[yKey]})), backgroundColor: color}]},
+    options: {scales: {x: {title: {display: true, text: vary}}, y: {title: {display: true, text: label}}}}
+  }));
+  plot('vis', 'vision', 'avg vision (end of run)', 'orange');
+  plot('spd', 'speed', 'avg speed (end of run)', 'blue');
+  plot('pop', 'creatures', 'creatures (end of run)', 'crimson');
+}
+
+document.getElementById('dl').addEventListener('click', () => {
+  const csv = 'file,growth,cost,mutation,creatures,avg_speed,avg_vision\n' +
+    rows.map(r => [r.file, r.growth, r.cost, r.mut, r.creatures.toFixed(2), r.speed.toFixed(3), r.vision.toFixed(2)].join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+  a.download = 'summary.csv';
+  a.click();
+});
+</script>
+</body></html>
