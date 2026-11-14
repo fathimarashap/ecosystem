@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meadow Evolution 3D</title>
+<style>
+body{margin:0;background:#eef3ee;color:#1f2d2a;font:16px/1.5 "Trebuchet MS",Verdana,sans-serif}
+.wrap{max-width:960px;margin:0 auto;padding:16px}
+h1{margin:0;font:700 1.8rem Georgia,serif}
+p.sub{margin:2px 0 12px;color:#55645f}
+button,select{font:inherit;padding:7px 12px;border-radius:8px;border:2px solid #3f6b3a;background:#fff;color:#1f2d2a;cursor:pointer}
+button.on{background:#f0a030;border-color:#f0a030;font-weight:700}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0;align-items:center}
+#stage{border:3px solid #3f6b3a;border-radius:10px;overflow:hidden;line-height:0;touch-action:none}
+#msg{min-height:1.5em;font-weight:700;color:#b8365a;margin:6px 0}
+#info{margin:6px 0;font-weight:700}
+.sliders{background:#fff;border:1px solid #c9d8cc;border-radius:10px;padding:10px 14px;margin:8px 0}
+.sliders label{display:block;margin:4px 0}
+.sliders input[type=range]{width:100%}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.charts{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid #c9d8cc;border-radius:10px;padding:10px}
+small{color:#55645f}
+</style></head><body><div class="wrap">
+<h1>Meadow Evolution 3D</h1>
+<p class="sub">Creatures that find food reproduce, and their children inherit slightly changed speed and vision. Drag to rotate, scroll to zoom, pick a power and click the ground.</p>
+<div class="bar" id="tools">
+  <button data-tool="plant">Drop plants</button>
+  <button data-tool="creature">Spawn creature</button>
+  <button id="drought">Drought</button>
+  <button id="bloom">Food bloom</button>
+</div>
+<div id="stage"></div>
+<div id="msg"></div>
+<div id="info"></div>
+<small>Orange creatures are well fed, pale ones are starving, bigger bodies have longer vision, red rings mark deaths.</small>
+<div class="bar">
+  <button id="start" class="on">Start</button>
+  <button id="pause">Pause</button>
+  <button id="reset">Reset</button>
+  <label>Speed <select id="speed"><option value="1">1x</option><option value="5">5x</option><option value="20">20x</option><option value="50">50x</option></select></label>
+  <button id="csv">Download CSV</button>
+  <label><input type="checkbox" id="auto"> Experiment mode (stop and save CSV at 30000 steps)</label>
+</div>
+<div class="sliders">
+  <label>Plant growth: <b id="gv">0.3</b><input id="growth" type="range" min="0" max="0.6" step="0.01" value="0.3"></label>
+  <label>Living cost: <b id="cv">0.1</b><input id="cost" type="range" min="0.05" max="0.5" step="0.01" value="0.1"></label>
+  <label>Mutation size: <b id="mv">1</b><input id="mut" type="range" min="0" max="3" step="0.1" value="1"></label>
+</div>
+<div class="charts">
+  <div class="card"><canvas id="popChart"></canvas></div>
+  <div class="card"><canvas id="traitChart"></canvas></div>
+</div>
+</div>
+<script src="three.min.js"></script>
+<script src="chart.umd.js"></script>
+<script>
+const SPEED_MAX = 4;          // raise to 8 to let speed evolve further
+const AUTO_STEPS = 30000;
+const $ = id => document.getElementById(id);
+const W = 800, H = 500, K = 0.1;   // simulation size, and scale to 3D units
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const mutate = (v, amt, lo, hi) => clamp(v + rand(-amt, amt), lo, hi);
+const wx = x => (x - W / 2) * K, wz = y => (y - H / 2) * K;
+
+const params = {growth: 0.3, cost: 0.1, mut: 1};
+for (const [id, label] of [['growth','gv'], ['cost','cv'], ['mut','mv']]) {
+  const el = $(id);
+  const sync = () => { params[id] = parseFloat(el.value); $(label).textContent = el.value; };
+  el.addEventListener('input', sync); sync();
+}
+
+// ---------- charts ----------
+const chartOf = (id, sets) => new Chart($(id), {type: 'line', data: {labels: [], datasets: sets},
+  options: {animation: false, scales: {y: {position: 'left'}, y1: {position: 'right', grid: {drawOnChartArea: false}, display: sets.some(s => s.yAxisID === 'y1')}}}});
+const popChart = chartOf('popChart', [
+  {label: 'Creatures', data: [], borderColor: 'crimson', pointRadius: 0},
+  {label: 'Plants', data: [], borderColor: 'green', pointRadius: 0}]);
+const traitChart = chartOf('traitChart', [
+  {label: 'Avg speed', data: [], borderColor: 'blue', pointRadius: 0, yAxisID: 'y'},
+  {label: 'Avg vision', data: [], borderColor: 'orange', pointRadius: 0, yAxisID: 'y1'}]);
+
+// ---------- 3D scene ----------
+const stage = $('stage');
+const renderer = new THREE.WebGLRenderer({antialias: true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+stage.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xbfe3f2);
+scene.fog = new THREE.Fog(0xbfe3f2, 90, 200);
+const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 400);
+scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(30, 60, 20); scene.add(sun);
+
+const groundMat = new THREE.MeshLambertMaterial({color: 0x79c15a});
+const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 90).rotateX(-Math.PI / 2), groundMat);
+scene.add(ground);
+const slab = new THREE.Mesh(new THREE.BoxGeometry(120, 3, 90), new THREE.MeshLambertMaterial({color: 0x8b6b4a}));
+slab.position.y = -1.51; scene.add(slab);
+const field = new THREE.Mesh(new THREE.PlaneGeometry(W * K, H * K).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({color: 0x8ad06a}));
+field.position.y = 0.02; scene.add(field);
+
+for (let i = 0; i < 45; i++) {          // decorative trees around the meadow
+  const x = rand(-58, 58), z = rand(-43, 43);
+  if (Math.abs(x) < 42 && Math.abs(z) < 27) continue;
+  const t = new THREE.Group(), s = rand(0.8, 1.5);
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.4, 2, 6), new THREE.MeshLambertMaterial({color: 0x7a5230, flatShading: true}));
+  trunk.position.y = 1;
+  const top = new THREE.Mesh(new THREE.ConeGeometry(1.6, 3.8, 6), new THREE.MeshLambertMaterial({color: [0x2f7d3a, 0x3f9142, 0x276b34][i % 3], flatShading: true}));
+  top.position.y = 3.8;
+  t.add(trunk, top); t.position.set(x, 0, z); t.scale.setScalar(s); scene.add(t);
+}
+
+const MAXP = 600, MAXC = 800, MAXD = 300;
+const plantMat = new THREE.MeshLambertMaterial({color: 0x2f8f3a, flatShading: true});
+const plantMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.45, 0), plantMat, MAXP);
+const critMesh = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, 1), new THREE.MeshLambertMaterial({flatShading: true}), MAXC);
+critMesh.setColorAt(0, new THREE.Color(0xffffff));
+const deathMesh = new THREE.InstancedMesh(new THREE.RingGeometry(0.7, 1, 20).rotateX(-Math.PI / 2),
+  new THREE.MeshBasicMaterial({color: 0xb8365a, transparent: true, opacity: 0.75, side: THREE.DoubleSide}), MAXD);
+for (const m of [plantMesh, critMesh, deathMesh]) { m.frustumCulled = false; scene.add(m); }
+const dummy = new THREE.Object3D(), fed = new THREE.Color(0xf0a030), hungry = new THREE.Color(0xf3dcd6), tmp = new THREE.Color();
+
+// ---------- camera controls ----------
+let theta = 0.5, phi = 0.95, dist = 78, drag = null;
+const el = renderer.domElement;
+function placeCamera() {
+  camera.position.set(dist * Math.sin(phi) * Math.sin(theta), dist * Math.cos(phi), dist * Math.sin(phi) * Math.cos(theta));
+  camera.lookAt(0, 0, 0);
+}
+function resize() {
+  const w = stage.clientWidth, h = Math.round(w * 0.6);
+  renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+el.addEventListener('pointerdown', e => { drag = {lx: e.clientX, ly: e.clientY, moved: 0}; el.setPointerCapture(e.pointerId); });
+el.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
+  drag.moved += Math.abs(dx) + Math.abs(dy); drag.lx = e.clientX; drag.ly = e.clientY;
+  theta -= dx * 0.006; phi = clamp(phi - dy * 0.006, 0.25, 1.45);
+});
+el.addEventListener('pointerup', e => { if (drag && drag.moved < 6) clickGround(e); drag = null; });
+el.addEventListener('wheel', e => { e.preventDefault(); dist = clamp(dist * (1 + e.deltaY * 0.001), 25, 130); }, {passive: false});
+
+// ---------- simulation ----------
+let plants, creatures, deaths, steps, runLog, droughtLeft;
+let running = false, simSpeed = 1, tool = null, msgTimer;
+const makeCreature = (x, y, speed, vision) => ({x, y, angle: rand(0, Math.PI * 2), speed, vision, energy: 50});
+const mean = k => creatures.length ? creatures.reduce((s, c) => s + c[k], 0) / creatures.length : 0;
+function say(text, ms = 4000) { $('msg').textContent = text; clearTimeout(msgTimer); if (ms) msgTimer = setTimeout(() => $('msg').textContent = '', ms); }
+
+function reset() {
+  plants = Array.from({length: 80}, () => ({x: rand(0, W), y: rand(0, H)}));
+  creatures = Array.from({length: 15}, () => makeCreature(rand(0, W), rand(0, H), rand(0.8, 2.2), rand(40, 120)));
+  deaths = []; steps = 0; runLog = []; droughtLeft = 0; running = false;
+  for (const ch of [popChart, traitChart]) { ch.data.labels.length = 0; ch.data.datasets.forEach(d => d.data.length = 0); ch.update(); }
+  $('start').textContent = 'Start'; $('pause').textContent = 'Pause';
+  say('Set the rules, then press Start.', 0);
+}
+
+function update() {
+  const babies = [];
+  for (const c of creatures) {
+    let nearest = null, best = c.vision;
+    for (const p of plants) { const d = Math.hypot(p.x - c.x, p.y - c.y); if (d < best) { best = d; nearest = p; } }
+    if (nearest) {
+      c.angle = Math.atan2(nearest.y - c.y, nearest.x - c.x);
+      if (best < 6) { plants.splice(plants.indexOf(nearest), 1); c.energy += 30; }
+    } else c.angle += rand(-0.3, 0.3);
+    c.x = (c.x + Math.cos(c.angle) * c.speed + W) % W;
+    c.y = (c.y + Math.sin(c.angle) * c.speed + H) % H;
+    c.energy -= params.cost + c.speed * c.speed * 0.02 + c.vision * 0.0008;
+    if (c.energy > 100) {
+      c.energy -= 50;
+      babies.push(makeCreature(c.x, c.y, mutate(c.speed, 0.2 * params.mut, 0.5, SPEED_MAX), mutate(c.vision, 8 * params.mut, 20, 200)));
+    }
+  }
+  for (const c of creatures) if (c.energy <= 0) deaths.push({x: c.x, y: c.y, life: 30});
+  creatures = creatures.filter(c => c.energy > 0).concat(babies);
+  const growth = droughtLeft > 0 ? 0 : params.growth;
+  if (droughtLeft > 0) droughtLeft--;
+  if (Math.random() < growth && plants.length < 150) plants.push({x: rand(0, W), y: rand(0, H)});
+}
+
+function record() {
+  const row = [steps, creatures.length, plants.length, mean('speed').toFixed(3), mean('vision').toFixed(3), params.growth, params.cost, params.mut];
+  runLog.push(row);
+  const add = (ch, v) => {
+    ch.data.labels.push(steps); ch.data.datasets.forEach((d, i) => d.data.push(v[i]));
+    if (ch.data.labels.length > 300) { ch.data.labels.shift(); ch.data.datasets.forEach(d => d.data.shift()); }
+    ch.update();
+  };
+  add(popChart, [creatures.length, plants.length]); add(traitChart, [+row[3], +row[4]]);
+}
+
+function draw() {
+  const np = Math.min(plants.length, MAXP);
+  plants.slice(0, np).forEach((p, i) => { dummy.position.set(wx(p.x), 0.3, wz(p.y)); dummy.rotation.set(0, i, 0); dummy.scale.setScalar(1); dummy.updateMatrix(); plantMesh.setMatrixAt(i, dummy.matrix); });
+  plantMesh.count = np; plantMesh.instanceMatrix.needsUpdate = true;
+  plantMat.color.set(droughtLeft > 0 ? 0x8a7a2a : 0x2f8f3a);
+  groundMat.color.lerp(tmp.set(droughtLeft > 0 ? 0xb9a45a : 0x79c15a), 0.05);
+
+  const nc = Math.min(creatures.length, MAXC);
+  creatures.slice(0, nc).forEach((c, i) => {
+    const r = 0.35 + c.vision / 260;
+    dummy.position.set(wx(c.x), r * 0.9, wz(c.y));
+    dummy.rotation.set(0, -c.angle, 0); dummy.scale.set(r * 1.35, r * 0.9, r); dummy.updateMatrix();
+    critMesh.setMatrixAt(i, dummy.matrix);
+    critMesh.setColorAt(i, tmp.lerpColors(hungry, fed, clamp(c.energy / 60, 0, 1)));
+  });
+  critMesh.count = nc; critMesh.instanceMatrix.needsUpdate = true; critMesh.instanceColor.needsUpdate = true;
+
+  const nd = Math.min(deaths.length, MAXD);
+  deaths.slice(0, nd).forEach((d, i) => { dummy.position.set(wx(d.x), 0.1, wz(d.y)); dummy.rotation.set(0, 0, 0); dummy.scale.setScalar(1 + (30 - d.life) / 30 * 1.6); dummy.updateMatrix(); deathMesh.setMatrixAt(i, dummy.matrix); d.life--; });
+  deathMesh.count = nd; deathMesh.instanceMatrix.needsUpdate = true;
+  deaths = deaths.filter(d => d.life > 0);
+
+  $('info').textContent = `Step ${steps}   Creatures ${creatures.length}   Plants ${plants.length}   Avg speed ${mean('speed').toFixed(2)}   Avg vision ${mean('vision').toFixed(0)}`;
+  placeCamera(); renderer.render(scene, camera);
+}
+
+function loop() {
+  if (running) {
+    for (let i = 0; i < simSpeed; i++) {
+      update(); steps++;
+      if (steps % 30 === 0) record();
+      if (!creatures.length) {
+        if ($('auto').checked) { running = false; $('csv').click(); say('Extinct. Run saved.', 0); break; }
+        if (steps % 30 === 0) say('Extinct! Pick Spawn creature and click the ground to restart life.', 0);
+      } else if ($('msg').textContent.startsWith('Extinct')) say('');
+      if ($('auto').checked && steps >= AUTO_STEPS) { running = false; $('csv').click(); say('Experiment finished. CSV saved.', 0); break; }
+    }
+  }
+  draw(); requestAnimationFrame(loop);
+}
+
+// ---------- god powers and controls ----------
+const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), hit = new THREE.Vector3();
+function clickGround(e) {
+  if (!tool) return;
+  const r = el.getBoundingClientRect();
+  ray.setFromCamera({x: ((e.clientX - r.left) / r.width) * 2 - 1, y: -((e.clientY - r.top) / r.height) * 2 + 1}, camera);
+  if (!ray.ray.intersectPlane(floor, hit)) return;
+  const x = hit.x / K + W / 2, y = hit.z / K + H / 2;
+  if (x < 0 || x > W || y < 0 || y > H) return;
+  if (tool === 'plant') for (let i = 0; i < 8; i++) plants.push({x: clamp(x + rand(-18, 18), 0, W), y: clamp(y + rand(-18, 18), 0, H)});
+  else creatures.push(makeCreature(x, y, rand(0.8, 2.2), rand(40, 120)));
+}
+document.querySelectorAll('#tools button[data-tool]').forEach(b => b.addEventListener('click', () => {
+  tool = tool === b.dataset.tool ? null : b.dataset.tool;
+  document.querySelectorAll('#tools button[data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === tool));
+}));
+$('drought').addEventListener('click', () => { plants = plants.filter(() => Math.random() < 0.15); droughtLeft = 600; say('Drought! Most plants withered and nothing regrows for a while.'); });
+$('bloom').addEventListener('click', () => { for (let i = 0; i < 60; i++) plants.push({x: rand(0, W), y: rand(0, H)}); droughtLeft = 0; say('Food bloom! A burst of new plants appeared.'); });
+$('start').addEventListener('click', () => { running = true; $('start').textContent = 'Running'; say(''); });
+$('pause').addEventListener('click', () => { running = !running; $('pause').textContent = running ? 'Pause' : 'Resume'; });
+$('reset').addEventListener('click', reset);
+$('speed').addEventListener('change', e => simSpeed = parseInt(e.target.value));
+$('csv').addEventListener('click', () => {
+  const csv = 'step,creatures,plants,avg_speed,avg_vision,growth,cost,mutation\n' + runLog.map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+  a.download = 'ecosystem-run.csv'; a.click();
+});
+
+resize(); reset(); loop();
+</script></body></html>

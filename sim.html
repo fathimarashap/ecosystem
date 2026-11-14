@@ -1,185 +1,237 @@
-<canvas id="c" width="800" height="500" style="background:#111"></canvas>
-<div id="info" style="color:black;font-family:sans-serif;margin-top:8px"></div>
-<button id="start" style="margin:8px 0">Start</button>
-<label>Speed: <select id="speed">
-  <option value="1">1x</option><option value="5">5x</option>
-  <option value="20">20x</option><option value="50">50x</option>
-</select></label>
-<button id="csv">Download CSV</button>
-<div style="font-family:sans-serif;margin:8px 0">
-  <label>Plant growth: <span id="gv">0.3</span>
-    <input id="growth" type="range" min="0" max="0.6" step="0.01" value="0.3"></label><br>
-  <label>Living cost: <span id="cv">0.1</span>
-    <input id="cost" type="range" min="0.05" max="0.5" step="0.01" value="0.1"></label><br>
-  <label>Mutation size: <span id="mv">1</span>
-    <input id="mut" type="range" min="0" max="3" step="0.1" value="1"></label>
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Meadow Evolution</title>
+<style>
+body{margin:0;background:#eef3ee;color:#1f2d2a;font:16px/1.5 "Trebuchet MS",Verdana,sans-serif}
+.wrap{max-width:860px;margin:0 auto;padding:16px}
+h1{margin:0;font:700 1.8rem Georgia,serif}
+p.sub{margin:2px 0 12px;color:#55645f}
+button,select{font:inherit;padding:7px 12px;border-radius:8px;border:2px solid #3f6b3a;background:#fff;color:#1f2d2a;cursor:pointer}
+button.on{background:#f0a030;border-color:#f0a030;font-weight:700}
+.bar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+canvas#c{display:block;width:100%;height:auto;background:#cfe3b4;border:3px solid #3f6b3a;border-radius:10px}
+#msg{min-height:1.5em;font-weight:700;color:#b8365a;margin:6px 0}
+#info{margin:6px 0;font-weight:700}
+.sliders{background:#fff;border:1px solid #c9d8cc;border-radius:10px;padding:10px 14px;margin:8px 0}
+.sliders label{display:block;margin:4px 0}
+.sliders input[type=range]{width:100%}
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:700px){.charts{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid #c9d8cc;border-radius:10px;padding:10px}
+small{color:#55645f}
+</style></head><body><div class="wrap">
+<h1>Meadow Evolution</h1>
+<p class="sub">Creatures that find food reproduce, and their children inherit slightly changed speed and vision. Pick a power, then click the meadow.</p>
+
+<div class="bar" id="tools">
+  <button data-tool="plant">Drop plants</button>
+  <button data-tool="creature">Spawn creature</button>
+  <button id="drought">Drought</button>
+  <button id="bloom">Food bloom</button>
 </div>
-<div style="display:flex;gap:10px;max-width:820px">
-  <div style="flex:1"><canvas id="popChart"></canvas></div>
-  <div style="flex:1"><canvas id="traitChart"></canvas></div>
+<canvas id="c" width="800" height="500"></canvas>
+<div id="msg"></div>
+<div id="info"></div>
+<small>White-pink = starving, orange = well fed, bigger body = longer vision, red ring = a death.</small>
+
+<div class="bar">
+  <button id="start" class="on">Start</button>
+  <button id="pause">Pause</button>
+  <button id="reset">Reset</button>
+  <label>Speed <select id="speed"><option value="1">1x</option><option value="5">5x</option><option value="20">20x</option><option value="50">50x</option></select></label>
+  <button id="csv">Download CSV</button>
+  <label><input type="checkbox" id="auto"> Experiment mode (stop and save CSV at 30000 steps)</label>
+</div>
+
+<div class="sliders">
+  <label>Plant growth: <b id="gv">0.3</b><input id="growth" type="range" min="0" max="0.6" step="0.01" value="0.3"></label>
+  <label>Living cost: <b id="cv">0.1</b><input id="cost" type="range" min="0.05" max="0.5" step="0.01" value="0.1"></label>
+  <label>Mutation size: <b id="mv">1</b><input id="mut" type="range" min="0" max="3" step="0.1" value="1"></label>
+</div>
+
+<div class="charts">
+  <div class="card"><canvas id="popChart"></canvas></div>
+  <div class="card"><canvas id="traitChart"></canvas></div>
+</div>
 </div>
 <script src="chart.umd.js"></script>
 <script>
-const ctx = document.getElementById('c').getContext('2d');
-const info = document.getElementById('info');
+const SPEED_MAX = 4;          // raise to 8 to let speed evolve further
+const AUTO_STEPS = 30000;
+const $ = id => document.getElementById(id);
 const W = 800, H = 500;
 const rand = (a, b) => a + Math.random() * (b - a);
-
-let plants = Array.from({length: 80}, () => ({x: rand(0, W), y: rand(0, H)}));
-
-function makeCreature(x, y, speed, vision) {
-  return {x, y, angle: rand(0, Math.PI * 2), speed, vision, energy: 50};
-}
-let creatures = Array.from({length: 15}, () =>
-  makeCreature(rand(0, W), rand(0, H), rand(0.8, 2.2), rand(40, 120)));
-const mutate = (v, amt, min, max) => Math.max(min, Math.min(max, v + rand(-amt, amt)));
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const mutate = (v, amt, lo, hi) => clamp(v + rand(-amt, amt), lo, hi);
+const cv = $('c'), ctx = cv.getContext('2d');
 
 const params = {growth: 0.3, cost: 0.1, mut: 1};
-for (const [id, key, label] of [['growth','growth','gv'], ['cost','cost','cv'], ['mut','mut','mv']]) {
-  const el = document.getElementById(id);
-  const sync = () => {
-    params[key] = parseFloat(el.value);
-    document.getElementById(label).textContent = el.value;
-  };
+for (const [id, label] of [['growth','gv'], ['cost','cv'], ['mut','mv']]) {
+  const el = $(id);
+  const sync = () => { params[id] = parseFloat(el.value); $(label).textContent = el.value; };
   el.addEventListener('input', sync);
   sync();
 }
 
+const chartOf = (id, sets) => new Chart($(id), {
+  type: 'line', data: {labels: [], datasets: sets},
+  options: {animation: false, scales: {y: {position: 'left'}, y1: {position: 'right', grid: {drawOnChartArea: false}, display: sets.some(s => s.yAxisID === 'y1')}}}
+});
+const popChart = chartOf('popChart', [
+  {label: 'Creatures', data: [], borderColor: 'crimson', pointRadius: 0},
+  {label: 'Plants', data: [], borderColor: 'green', pointRadius: 0}]);
+const traitChart = chartOf('traitChart', [
+  {label: 'Avg speed', data: [], borderColor: 'blue', pointRadius: 0, yAxisID: 'y'},
+  {label: 'Avg vision', data: [], borderColor: 'orange', pointRadius: 0, yAxisID: 'y1'}]);
+
+let plants, creatures, deaths, steps, runLog, droughtLeft;
+let running = false, simSpeed = 1, tool = null, msgTimer;
+const makeCreature = (x, y, speed, vision) => ({x, y, angle: rand(0, Math.PI * 2), speed, vision, energy: 50});
+const mean = k => creatures.length ? creatures.reduce((s, c) => s + c[k], 0) / creatures.length : 0;
+
+function say(text, ms = 4000) {
+  $('msg').textContent = text;
+  clearTimeout(msgTimer);
+  if (ms) msgTimer = setTimeout(() => $('msg').textContent = '', ms);
+}
+
+function reset() {
+  plants = Array.from({length: 80}, () => ({x: rand(0, W), y: rand(0, H)}));
+  creatures = Array.from({length: 15}, () => makeCreature(rand(0, W), rand(0, H), rand(0.8, 2.2), rand(40, 120)));
+  deaths = []; steps = 0; runLog = []; droughtLeft = 0; running = false;
+  for (const ch of [popChart, traitChart]) {
+    ch.data.labels.length = 0;
+    ch.data.datasets.forEach(d => d.data.length = 0);
+    ch.update();
+  }
+  $('start').textContent = 'Start';
+  $('pause').textContent = 'Pause';
+  say('Set the rules, then press Start.', 0);
+}
+
 function update() {
   const babies = [];
-
   for (const c of creatures) {
     let nearest = null, best = c.vision;
     for (const p of plants) {
       const d = Math.hypot(p.x - c.x, p.y - c.y);
       if (d < best) { best = d; nearest = p; }
     }
-
     if (nearest) {
       c.angle = Math.atan2(nearest.y - c.y, nearest.x - c.x);
-      if (best < 6) {
-        plants.splice(plants.indexOf(nearest), 1);
-        c.energy += 30;                       // eating gives energy
-      }
+      if (best < 6) { plants.splice(plants.indexOf(nearest), 1); c.energy += 30; }
     } else {
       c.angle += rand(-0.3, 0.3);
     }
-
     c.x = (c.x + Math.cos(c.angle) * c.speed + W) % W;
     c.y = (c.y + Math.sin(c.angle) * c.speed + H) % H;
-
     c.energy -= params.cost + c.speed * c.speed * 0.02 + c.vision * 0.0008;
-    if (c.energy > 100) {                     // enough energy: reproduce
+    if (c.energy > 100) {
       c.energy -= 50;
-      babies.push(makeCreature(c.x, c.y, mutate(c.speed, 0.2 * params.mut, 0.5, 8), mutate(c.vision, 8 * params.mut, 20, 200)));
+      babies.push(makeCreature(c.x, c.y,
+        mutate(c.speed, 0.2 * params.mut, 0.5, SPEED_MAX),
+        mutate(c.vision, 8 * params.mut, 20, 200)));
     }
   }
   for (const c of creatures) if (c.energy <= 0) deaths.push({x: c.x, y: c.y, life: 30});
   creatures = creatures.filter(c => c.energy > 0).concat(babies);
 
-  if (Math.random() < params.growth && plants.length < 150)
-    plants.push({x: rand(0, W), y: rand(0, H)});
+  const growth = droughtLeft > 0 ? 0 : params.growth;
+  if (droughtLeft > 0) droughtLeft--;
+  if (Math.random() < growth && plants.length < 150) plants.push({x: rand(0, W), y: rand(0, H)});
 }
 
-let deaths = [];
+function record() {
+  const row = [steps, creatures.length, plants.length, mean('speed').toFixed(3), mean('vision').toFixed(3), params.growth, params.cost, params.mut];
+  runLog.push(row);
+  const add = (ch, vals) => {
+    ch.data.labels.push(steps);
+    ch.data.datasets.forEach((d, i) => d.data.push(vals[i]));
+    if (ch.data.labels.length > 300) { ch.data.labels.shift(); ch.data.datasets.forEach(d => d.data.shift()); }
+    ch.update();
+  };
+  add(popChart, [creatures.length, plants.length]);
+  add(traitChart, [+row[3], +row[4]]);
+}
 
 function draw() {
   ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = 'limegreen';
-  for (const p of plants) ctx.fillRect(p.x, p.y, 4, 4);
-
+  ctx.fillStyle = droughtLeft > 0 ? '#8a6f2a' : '#3f6b3a';
+  for (const p of plants) { ctx.beginPath(); ctx.arc(p.x, p.y, 3, 0, 6.283); ctx.fill(); }
   for (const c of creatures) {
-    const e = Math.max(0, Math.min(1, c.energy / 60));
-    ctx.fillStyle = `rgb(255, ${Math.floor(60 + 195 * e)}, ${Math.floor(60 + 195 * e)})`;
-    const s = 3 + c.vision / 25;
-    ctx.fillRect(c.x - s / 2, c.y - s / 2, s, s);
+    const e = clamp(c.energy / 60, 0, 1), r = 3 + c.vision / 30;
+    ctx.fillStyle = `rgb(255, ${Math.floor(110 + 60 * e)}, ${Math.floor(130 - 90 * e)})`;
+    ctx.beginPath(); ctx.arc(c.x, c.y, r, 0, 6.283); ctx.fill();
+    ctx.fillStyle = '#1f2d2a';
+    ctx.beginPath(); ctx.arc(c.x + Math.cos(c.angle) * r * 0.55, c.y + Math.sin(c.angle) * r * 0.55, 1.6, 0, 6.283); ctx.fill();
   }
-
   for (const d of deaths) {
-    ctx.strokeStyle = `rgba(255, 60, 60, ${d.life / 30})`;
-    ctx.beginPath();
-    ctx.arc(d.x, d.y, 12 - d.life / 3, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.strokeStyle = `rgba(184,54,90,${d.life / 30})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(d.x, d.y, 12 - d.life / 3, 0, 6.283); ctx.stroke();
     d.life--;
   }
   deaths = deaths.filter(d => d.life > 0);
-  const avg = k => creatures.length ? (creatures.reduce((s, c) => s + c[k], 0) / creatures.length).toFixed(2) : 0;
-  info.textContent = `Step: ${steps}  Creatures: ${creatures.length}   Plants: ${plants.length}   Avg Speed: ${avg('speed')}   Avg Vision: ${avg('vision')}`;
+  $('info').textContent = `Step ${steps}   Creatures ${creatures.length}   Plants ${plants.length}   Avg speed ${mean('speed').toFixed(2)}   Avg vision ${mean('vision').toFixed(0)}`;
 }
-const popChart = new Chart(document.getElementById('popChart'), {
-  type: 'line',
-  data: {labels: [], datasets: [
-    {label: 'Creatures', data: [], borderColor: 'crimson', pointRadius: 0},
-    {label: 'Plants', data: [], borderColor: 'green', pointRadius: 0}
-  ]},
-  options: {animation: false}
-});
-
-const traitChart = new Chart(document.getElementById('traitChart'), {
-  type: 'line',
-  data: {labels: [], datasets: [
-    {label: 'Avg speed', data: [], borderColor: 'blue', pointRadius: 0, yAxisID: 'y'},
-    {label: 'Avg vision', data: [], borderColor: 'orange', pointRadius: 0, yAxisID: 'y1'}
-  ]},
-  options: {animation: false, scales: {
-    y: {position: 'left'},
-    y1: {position: 'right', grid: {drawOnChartArea: false}}
-  }}
-});
-
-let frame = 0;
-function record() {
-  frame++;
-  if (frame % 30 !== 0) return;
-  const mean = k => creatures.length
-    ? creatures.reduce((s, c) => s + c[k], 0) / creatures.length : 0;
-  const add = (chart, vals) => {
-    chart.data.labels.push(frame);
-    chart.data.datasets.forEach((d, i) => d.data.push(vals[i]));
-    if (chart.data.labels.length > 300) {
-      chart.data.labels.shift();
-      chart.data.datasets.forEach(d => d.data.shift());
-    }
-    chart.update();
-  };
-  add(popChart, [creatures.length, plants.length]);
-  add(traitChart, [mean('speed'), mean('vision')]);
-}
-let running = false;
-document.getElementById('start').addEventListener('click', () => running = true);
-let simSpeed = 1, steps = 0;
-const runLog = [];
-document.getElementById('speed').addEventListener('change', e => simSpeed = parseInt(e.target.value));
-
-function logRow() {
-  const mean = k => creatures.length ? creatures.reduce((s, c) => s + c[k], 0) / creatures.length : 0;
-  runLog.push([steps, creatures.length, plants.length, mean('speed').toFixed(3), mean('vision').toFixed(3), params.growth, params.cost, params.mut]);
-}
-
-document.getElementById('csv').addEventListener('click', () => {
-  const header = 'step,creatures,plants,avg_speed,avg_vision,growth,cost,mutation\n';
-  const csv = header + runLog.map(r => r.join(',')).join('\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
-  a.download = 'ecosystem-run.csv';
-  a.click();
-});
-const targetSteps = 30000;
 
 function loop() {
   if (running) {
     for (let i = 0; i < simSpeed; i++) {
-      update(); record(); steps++;
-      if (steps % 30 === 0) logRow();
-      if (steps >= targetSteps) {
-        running = false;
-        document.getElementById('csv').click();
-        break;
-      }
+      update(); steps++;
+      if (steps % 30 === 0) record();
+      if (!creatures.length) {
+        if ($('auto').checked) { running = false; $('csv').click(); say('Extinct. Run saved.', 0); break; }
+        if (steps % 30 === 0) say('Extinct! Pick Spawn creature and click the meadow to restart life.', 0);
+      } else if ($('msg').textContent.startsWith('Extinct')) say('');
+      if ($('auto').checked && steps >= AUTO_STEPS) { running = false; $('csv').click(); say('Experiment finished. CSV saved.', 0); break; }
     }
   }
   draw();
   requestAnimationFrame(loop);
 }
+
+// god powers
+document.querySelectorAll('#tools button[data-tool]').forEach(b => b.addEventListener('click', () => {
+  tool = tool === b.dataset.tool ? null : b.dataset.tool;
+  document.querySelectorAll('#tools button[data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === tool));
+  cv.style.cursor = tool ? 'crosshair' : 'default';
+}));
+cv.addEventListener('click', e => {
+  if (!tool) return;
+  const r = cv.getBoundingClientRect();
+  const x = (e.clientX - r.left) * W / r.width, y = (e.clientY - r.top) * H / r.height;
+  if (tool === 'plant') {
+    for (let i = 0; i < 8; i++) plants.push({x: clamp(x + rand(-18, 18), 0, W), y: clamp(y + rand(-18, 18), 0, H)});
+  } else {
+    creatures.push(makeCreature(x, y, rand(0.8, 2.2), rand(40, 120)));
+  }
+});
+$('drought').addEventListener('click', () => {
+  plants = plants.filter(() => Math.random() < 0.15);
+  droughtLeft = 600;
+  say('Drought! Most plants withered and nothing regrows for a while.');
+});
+$('bloom').addEventListener('click', () => {
+  for (let i = 0; i < 60; i++) plants.push({x: rand(0, W), y: rand(0, H)});
+  droughtLeft = 0;
+  say('Food bloom! A burst of new plants appeared.');
+});
+
+// controls
+$('start').addEventListener('click', () => { running = true; $('start').textContent = 'Running'; say(''); });
+$('pause').addEventListener('click', () => { running = !running; $('pause').textContent = running ? 'Pause' : 'Resume'; });
+$('reset').addEventListener('click', reset);
+$('speed').addEventListener('change', e => simSpeed = parseInt(e.target.value));
+$('csv').addEventListener('click', () => {
+  const csv = 'step,creatures,plants,avg_speed,avg_vision,growth,cost,mutation\n' + runLog.map(r => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type: 'text/csv'}));
+  a.download = 'ecosystem-run.csv';
+  a.click();
+});
+
+reset();
 loop();
-</script>
+</script></body></html>
