@@ -71,7 +71,7 @@ function update() {
     c.energy -= params.cost + c.speed * c.speed * 0.02 + c.vision * 0.0008;
     if (c.energy > 100) {                     // enough energy: reproduce
       c.energy -= 50;
-      babies.push(makeCreature(c.x, c.y, mutate(c.speed, 0.2 * params.mut, 0.5, 4), mutate(c.vision, 8 * params.mut, 20, 200)));
+      babies.push(makeCreature(c.x, c.y, mutate(c.speed, 0.2 * params.mut, 0.5, 8), mutate(c.vision, 8 * params.mut, 20, 200)));
     }
   }
   for (const c of creatures) if (c.energy <= 0) deaths.push({x: c.x, y: c.y, life: 30});

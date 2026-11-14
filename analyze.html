@@ -45,14 +45,14 @@ function show() {
 
   charts.forEach(c => c.destroy());
   charts.length = 0;
-  const plot = (id, yKey, label, color) => charts.push(new Chart(document.getElementById(id), {
-    type: 'scatter',
-    data: {datasets: [{label, data: rows.map(r => ({x: r[vary], y: r[yKey]})), backgroundColor: color}]},
-    options: {scales: {x: {title: {display: true, text: vary}}, y: {title: {display: true, text: label}}}}
-  }));
-  plot('vis', 'vision', 'avg vision (end of run)', 'orange');
-  plot('spd', 'speed', 'avg speed (end of run)', 'blue');
-  plot('pop', 'creatures', 'creatures (end of run)', 'crimson');
+  const plot = (id, yKey, label, color, skipExtinct) => charts.push(new Chart(document.getElementById(id), {
+  type: 'scatter',
+  data: {datasets: [{label, data: rows.filter(r => !skipExtinct || r.creatures > 0).map(r => ({x: r[vary], y: r[yKey]})), backgroundColor: color}]},
+  options: {scales: {x: {title: {display: true, text: vary}}, y: {title: {display: true, text: label}}}}
+}));
+plot('vis', 'vision', 'avg vision (end of run)', 'orange', true);
+plot('spd', 'speed', 'avg speed (end of run)', 'blue', true);
+plot('pop', 'creatures', 'creatures (end of run)', 'crimson', false);
 }
 
 document.getElementById('dl').addEventListener('click', () => {
