@@ -2,6 +2,7 @@
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Meadow Evolution 3D</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🌿%3C/text%3E%3C/svg%3E">
 <style>
 body{margin:0;background:#eef3ee;color:#1f2d2a;font:16px/1.5 "Trebuchet MS",Verdana,sans-serif}
 .wrap{max-width:960px;margin:0 auto;padding:16px}
@@ -22,7 +23,7 @@ button.on{background:#f0a030;border-color:#f0a030;font-weight:700}
 small{color:#55645f}
 </style></head><body><div class="wrap">
 <h1>Meadow Evolution 3D</h1>
-<p class="sub">Creatures that find food reproduce, and their children inherit slightly changed speed and vision. Drag to rotate, scroll to zoom, pick a power and click the ground.</p>
+<p class="sub">Creatures that find food reproduce, and their children inherit slightly changed speed and vision. Drag to rotate, scroll or pinch to zoom, pick a power and click the ground. <a href="sim.html">2D version</a></p>
 <div class="bar" id="tools">
   <button data-tool="plant">Drop plants</button>
   <button data-tool="creature">Spawn creature</button>
@@ -32,6 +33,7 @@ small{color:#55645f}
 <div id="stage"></div>
 <div id="msg"></div>
 <div id="info"></div>
+<div id="env" style="margin:4px 0;color:#3f6b3a;font-weight:700"></div>
 <small>Orange creatures are well fed, pale ones are starving, bigger bodies have longer vision, red rings mark deaths.</small>
 <div class="bar">
   <button id="start" class="on">Start</button>
@@ -40,6 +42,7 @@ small{color:#55645f}
   <label>Speed <select id="speed"><option value="1">1x</option><option value="5">5x</option><option value="20">20x</option><option value="50">50x</option></select></label>
   <button id="csv">Download CSV</button>
   <label><input type="checkbox" id="auto"> Experiment mode (stop and save CSV at 30000 steps)</label>
+  <label><input type="checkbox" id="cycle"> Day/night and seasons (off during experiment mode)</label>
 </div>
 <div class="sliders">
   <label>Plant growth: <b id="gv">0.3</b><input id="growth" type="range" min="0" max="0.6" step="0.01" value="0.3"></label>
@@ -49,6 +52,12 @@ small{color:#55645f}
 <div class="charts">
   <div class="card"><canvas id="popChart"></canvas></div>
   <div class="card"><canvas id="traitChart"></canvas></div>
+</div>
+<div class="card" style="margin-top:12px">
+  <h3 style="margin:0 0 6px;font:700 1.1rem Georgia,serif">About this project</h3>
+  <p>An evolving ecosystem built for the TinkerHub Useless Projects scholarship. Creatures have two inherited traits, speed and vision. Those that find enough food reproduce, and their children inherit slightly mutated traits, so natural selection happens on screen.</p>
+  <p><b>What I found (preliminary, one run per setting):</b> more food supports more creatures, and at very low food the population died out. When food was scarce, creatures tended to evolve longer vision (about 112, against about 81 in the abundant-food runs). Speed was capped in these runs, so it was not a fair test.</p>
+  <p><small>Built with JavaScript, Three.js and Chart.js.</small></p>
 </div>
 </div>
 <script src="three.min.js"></script>
@@ -82,14 +91,19 @@ const traitChart = chartOf('traitChart', [
 
 // ---------- 3D scene ----------
 const stage = $('stage');
-const renderer = new THREE.WebGLRenderer({antialias: true});
+let renderer;
+try { renderer = new THREE.WebGLRenderer({antialias: true}); }
+catch (err) {
+  document.body.innerHTML = '<p style="padding:24px;font:16px sans-serif">This browser cannot show the 3D view. <a href="sim.html">Open the 2D version instead.</a></p>';
+  throw err;
+}
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 stage.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xbfe3f2);
 scene.fog = new THREE.Fog(0xbfe3f2, 90, 200);
 const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 400);
-scene.add(new THREE.AmbientLight(0xffffff, 0.75));
+const ambient = new THREE.AmbientLight(0xffffff, 0.75); scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffffff, 0.8); sun.position.set(30, 60, 20); scene.add(sun);
 
 const groundMat = new THREE.MeshLambertMaterial({color: 0x79c15a});
@@ -133,14 +147,26 @@ function resize() {
   renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', resize);
-el.addEventListener('pointerdown', e => { drag = {lx: e.clientX, ly: e.clientY, moved: 0}; el.setPointerCapture(e.pointerId); });
-el.addEventListener('pointermove', e => {
-  if (!drag) return;
-  const dx = e.clientX - drag.lx, dy = e.clientY - drag.ly;
-  drag.moved += Math.abs(dx) + Math.abs(dy); drag.lx = e.clientX; drag.ly = e.clientY;
-  theta -= dx * 0.006; phi = clamp(phi - dy * 0.006, 0.25, 1.45);
+const ptrs = new Map(); let pinch = 0, moved = 0;
+el.addEventListener('pointerdown', e => {
+  ptrs.set(e.pointerId, {x: e.clientX, y: e.clientY}); moved = 0; el.setPointerCapture(e.pointerId);
+  if (ptrs.size === 2) { const [a, b] = [...ptrs.values()]; pinch = Math.hypot(a.x - b.x, a.y - b.y); }
 });
-el.addEventListener('pointerup', e => { if (drag && drag.moved < 6) clickGround(e); drag = null; });
+el.addEventListener('pointermove', e => {
+  const p = ptrs.get(e.pointerId); if (!p) return;
+  const dx = e.clientX - p.x, dy = e.clientY - p.y; p.x = e.clientX; p.y = e.clientY;
+  moved += Math.abs(dx) + Math.abs(dy);
+  if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinch && d) dist = clamp(dist * pinch / d, 25, 130);
+    pinch = d;
+  } else { theta -= dx * 0.006; phi = clamp(phi - dy * 0.006, 0.25, 1.45); }
+});
+const endPtr = e => {
+  const single = ptrs.size === 1; ptrs.delete(e.pointerId);
+  if (e.type === 'pointerup' && single && moved < 6) clickGround(e);
+};
+el.addEventListener('pointerup', endPtr); el.addEventListener('pointercancel', endPtr);
 el.addEventListener('wheel', e => { e.preventDefault(); dist = clamp(dist * (1 + e.deltaY * 0.001), 25, 130); }, {passive: false});
 
 // ---------- simulation ----------
@@ -157,6 +183,21 @@ function reset() {
   for (const ch of [popChart, traitChart]) { ch.data.labels.length = 0; ch.data.datasets.forEach(d => d.data.length = 0); ch.update(); }
   $('start').textContent = 'Start'; $('pause').textContent = 'Pause';
   say('Set the rules, then press Start.', 0);
+}
+
+const DAY = 1200;   // steps per simulated day, 3 days per season
+const SEASONS = [
+  {n: 'Spring', grow: 1.3, temp: 18, col: 0x79c15a},
+  {n: 'Summer', grow: 0.8, temp: 30, col: 0xa3bf4f},
+  {n: 'Autumn', grow: 0.9, temp: 15, col: 0xc9a14a},
+  {n: 'Winter', grow: 0.4, temp: 3, col: 0xdbe6ec}];
+const nightC = new THREE.Color(0x0b1d3a), dayC = new THREE.Color(0xbfe3f2), duskC = new THREE.Color(0xf4a261), skyC = new THREE.Color();
+function env() {
+  if (!$('cycle').checked || $('auto').checked)
+    return {on: false, grow: 1, season: SEASONS[0], hour: 12, day: 1, sunH: 1, light: 1, temp: 20};
+  const day = Math.floor(steps / DAY), t = (steps % DAY) / DAY;
+  const season = SEASONS[Math.floor(day / 3) % 4], sunH = Math.sin((t - 0.25) * Math.PI * 2);
+  return {on: true, grow: season.grow, season, hour: t * 24, day: day + 1, sunH, light: clamp(sunH * 1.2 + 0.3, 0.12, 1), temp: season.temp + 5 * sunH};
 }
 
 function update() {
@@ -178,7 +219,7 @@ function update() {
   }
   for (const c of creatures) if (c.energy <= 0) deaths.push({x: c.x, y: c.y, life: 30});
   creatures = creatures.filter(c => c.energy > 0).concat(babies);
-  const growth = droughtLeft > 0 ? 0 : params.growth;
+  const growth = droughtLeft > 0 ? 0 : params.growth * env().grow;
   if (droughtLeft > 0) droughtLeft--;
   if (Math.random() < growth && plants.length < 150) plants.push({x: rand(0, W), y: rand(0, H)});
 }
@@ -195,11 +236,12 @@ function record() {
 }
 
 function draw() {
+  const E = env();
   const np = Math.min(plants.length, MAXP);
   plants.slice(0, np).forEach((p, i) => { dummy.position.set(wx(p.x), 0.3, wz(p.y)); dummy.rotation.set(0, i, 0); dummy.scale.setScalar(1); dummy.updateMatrix(); plantMesh.setMatrixAt(i, dummy.matrix); });
   plantMesh.count = np; plantMesh.instanceMatrix.needsUpdate = true;
   plantMat.color.set(droughtLeft > 0 ? 0x8a7a2a : 0x2f8f3a);
-  groundMat.color.lerp(tmp.set(droughtLeft > 0 ? 0xb9a45a : 0x79c15a), 0.05);
+  groundMat.color.lerp(tmp.set(droughtLeft > 0 ? 0xb9a45a : E.season.col), 0.05);
 
   const nc = Math.min(creatures.length, MAXC);
   creatures.slice(0, nc).forEach((c, i) => {
@@ -217,6 +259,14 @@ function draw() {
   deaths = deaths.filter(d => d.life > 0);
 
   $('info').textContent = `Step ${steps}   Creatures ${creatures.length}   Plants ${plants.length}   Avg speed ${mean('speed').toFixed(2)}   Avg vision ${mean('vision').toFixed(0)}`;
+  skyC.copy(nightC).lerp(dayC, E.light);
+  if (E.on && Math.abs(E.sunH) < 0.25) skyC.lerp(duskC, 0.5);
+  scene.background.copy(skyC); scene.fog.color.copy(skyC);
+  ambient.intensity = 0.25 + 0.5 * E.light; sun.intensity = 0.9 * E.light;
+  sun.position.set(30, 20 + 50 * Math.max(E.sunH, 0.1), 20 * (1 - E.sunH));
+  $('env').textContent = E.on
+    ? `${E.season.n} · day ${E.day} · ${String(Math.floor(E.hour)).padStart(2, '0')}:00 · ${E.temp.toFixed(0)}°C · plant growth ×${E.grow}`
+    : 'Environment: constant. Tick Day/night and seasons to start the cycle.';
   placeCamera(); renderer.render(scene, camera);
 }
 
@@ -257,6 +307,7 @@ $('start').addEventListener('click', () => { running = true; $('start').textCont
 $('pause').addEventListener('click', () => { running = !running; $('pause').textContent = running ? 'Pause' : 'Resume'; });
 $('reset').addEventListener('click', reset);
 $('speed').addEventListener('change', e => simSpeed = parseInt(e.target.value));
+if (matchMedia('(pointer: coarse)').matches) [...$('speed').options].forEach(o => { if (+o.value > 5) o.remove(); });
 $('csv').addEventListener('click', () => {
   const csv = 'step,creatures,plants,avg_speed,avg_vision,growth,cost,mutation\n' + runLog.map(r => r.join(',')).join('\n');
   const a = document.createElement('a');
